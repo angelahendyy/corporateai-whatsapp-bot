@@ -81,8 +81,8 @@ function isContextualMessage(message) {
 
 // Enhanced insurance relation check with context
 function isInsuranceRelated(message, context) {
-  // Always allow greetings
-  const greetings = ['hi', 'hello', 'hey', 'مرحبا', 'أهلا', 'سلام'];
+  // Always allow greetings and polite responses
+  const greetings = ['hi', 'hello', 'hey', 'thank', 'thanks', 'okay', 'ok', 'مرحبا', 'أهلا', 'سلام', 'شكرا', 'حسنا'];
   if (greetings.some(greeting => message.includes(greeting))) {
     return true;
   }
