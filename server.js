@@ -92,21 +92,31 @@ function isInsuranceRelated(message, context) {
     return true;
   }
 
-  // Check if we're in an insurance conversation context
+  // STRICT RULE: Only allow context if BOTH conditions are met:
+  // 1. We're in insurance context AND
+  // 2. Message is clearly a follow-up to insurance topic
   if (context && context.isInsuranceContext) {
-    // If previous messages were about insurance, allow continuation
-    if (isContextualMessage(message)) {
-      return true;
-    }
-    
-    // Check if recent messages contain insurance topics
-    const recentMessages = context.messages.slice(-3);
-    if (recentMessages.some(msg => 
+    // Check if recent messages (last 2) contain insurance topics
+    const recentMessages = context.messages.slice(-2);
+    const hasRecentInsuranceContext = recentMessages.some(msg => 
       INSURANCE_KEYWORDS.some(keyword => 
         msg.content.toLowerCase().includes(keyword)
       )
-    )) {
-      return true;
+    );
+    
+    // Only allow contextual messages if there's recent insurance context
+    // AND the message seems like a continuation (short questions, follow-ups)
+    if (hasRecentInsuranceContext && isContextualMessage(message)) {
+      // Additional check: message should be insurance-context related
+      const contextualInsuranceWords = [
+        'where', 'how much', 'which', 'what about', 'price', 'cost',
+        'company', 'best', 'cheap', 'expensive', 'recommend',
+        'أين', 'كم', 'أي', 'ماذا عن', 'سعر', 'كلفة', 'شركة', 'أفضل', 'رخيص'
+      ];
+      
+      if (contextualInsuranceWords.some(word => message.includes(word))) {
+        return true;
+      }
     }
   }
 
