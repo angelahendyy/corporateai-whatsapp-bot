@@ -20,14 +20,26 @@ const conversationMemory = new Map();
 const INSURANCE_KEYWORDS = [
   'insurance', 'policy', 'premium', 'deductible', 'claim', 'coverage',
   'car', 'vehicle', 'auto', 'accident', 'price', 'cost', 'lebanon',
-  'ammin', 'تأمين', 'سيارة', 'حادث', 'سعر', 'امّن', 'لبنان'
+  'ammin', 'تأمين', 'سيارة', 'حادث', 'سعر', 'امّن', 'لبنان',
+  'motor', 'health', 'medical', 'life', 'property', 'home', 'fire',
+  'third party', 'comprehensive', 'quote', 'renewal', 'broker'
 ];
 
-// Context keywords that indicate continuation of conversation
+// Contextual follow-up keywords that show continuation
 const CONTEXT_KEYWORDS = [
-  'what about', 'how about', 'what place', 'where can', 'where to',
-  'which one', 'tell me more', 'continue', 'also', 'and',
-  'أين', 'ماذا عن', 'كيف', 'أيضا', 'وأين', 'أخبرني المزيد'
+  'what about', 'how about', 'what place', 'where can', 'where to', 'where is',
+  'which one', 'which', 'tell me more', 'continue', 'also', 'and', 'or',
+  'how much', 'what price', 'cost', 'expensive', 'cheap', 'better', 'best',
+  'recommend', 'suggest', 'compare', 'difference', 'vs', 'versus',
+  'أين', 'ماذا عن', 'كيف', 'أيضا', 'وأين', 'أخبرني المزيد', 'أي', 'أفضل',
+  'كم', 'سعر', 'أرخص', 'أغلى', 'قارن', 'الفرق'
+];
+
+// Greetings and polite responses
+const GREETINGS = [
+  'hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening',
+  'thank', 'thanks', 'thank you', 'okay', 'ok', 'yes', 'no', 'sure',
+  'مرحبا', 'أهلا', 'سلام', 'صباح الخير', 'مساء الخير', 'شكرا', 'نعم', 'لا', 'حسنا'
 ];
 
 // Clean up old conversations (prevent memory leaks)
@@ -38,6 +50,7 @@ function cleanupOldConversations() {
   for (const [userId, data] of conversationMemory.entries()) {
     if (now - data.lastActivity > THIRTY_MINUTES) {
       conversationMemory.delete(userId);
+      console.log(`Cleaned up conversation for user: ${userId}`);
     }
   }
 }
@@ -45,11 +58,13 @@ function cleanupOldConversations() {
 // Get or create conversation context
 function getConversationContext(userId) {
   if (!conversationMemory.has(userId)) {
+    console.log(`Creating new conversation context for user: ${userId}`);
     conversationMemory.set(userId, {
       messages: [],
       topic: null,
       lastActivity: Date.now(),
-      isInsuranceContext: false
+      isInsuranceContext: false,
+      lastInsuranceMessage: null
     });
   }
   
@@ -61,65 +76,80 @@ function getConversationContext(userId) {
 // Add message to conversation history
 function addToConversationHistory(userId, message, isUser = true) {
   const context = getConversationContext(userId);
-  context.messages.push({
+  
+  const messageEntry = {
     role: isUser ? 'user' : 'assistant',
     content: message,
     timestamp: Date.now()
-  });
+  };
   
-  // Keep only last 10 messages to manage memory
-  if (context.messages.length > 10) {
-    context.messages = context.messages.slice(-10);
+  context.messages.push(messageEntry);
+  
+  // Keep only last 8 messages to manage memory but maintain context
+  if (context.messages.length > 8) {
+    context.messages = context.messages.slice(-8);
   }
+  
+  // Track last insurance-related message for context
+  if (isUser && containsInsuranceKeywords(message)) {
+    context.lastInsuranceMessage = message;
+  }
+  
+  console.log(`Added to conversation history for ${userId}: ${isUser ? 'User' : 'Bot'} - ${message.substring(0, 50)}...`);
+}
+
+// Check if message contains insurance keywords
+function containsInsuranceKeywords(message) {
+  const lowerMessage = message.toLowerCase();
+  return INSURANCE_KEYWORDS.some(keyword => lowerMessage.includes(keyword));
 }
 
 // Determine if message is contextual (continuing previous conversation)
 function isContextualMessage(message) {
-  return CONTEXT_KEYWORDS.some(keyword => message.includes(keyword)) ||
-         message.length < 30; // Short questions often refer to context
+  const lowerMessage = message.toLowerCase();
+  return CONTEXT_KEYWORDS.some(keyword => lowerMessage.includes(keyword)) ||
+         message.length < 40; // Short questions often refer to context
 }
 
 // Enhanced insurance relation check with context
 function isInsuranceRelated(message, context) {
+  const lowerMessage = message.toLowerCase();
+  
   // Always allow greetings and polite responses
-  const greetings = ['hi', 'hello', 'hey', 'thank', 'thanks', 'okay', 'ok', 'مرحبا', 'أهلا', 'سلام', 'شكرا', 'حسنا'];
-  if (greetings.some(greeting => message.includes(greeting))) {
+  if (GREETINGS.some(greeting => lowerMessage.includes(greeting))) {
+    console.log(`Allowing greeting: ${message}`);
     return true;
   }
 
   // Check direct insurance keywords
-  if (INSURANCE_KEYWORDS.some(keyword => message.includes(keyword))) {
+  if (containsInsuranceKeywords(message)) {
+    console.log(`Insurance keywords found in: ${message}`);
     return true;
   }
 
-  // STRICT RULE: Only allow context if BOTH conditions are met:
-  // 1. We're in insurance context AND
-  // 2. Message is clearly a follow-up to insurance topic
+  // Context-based allowance - STRICT rules
   if (context && context.isInsuranceContext) {
-    // Check if recent messages (last 2) contain insurance topics
-    const recentMessages = context.messages.slice(-2);
+    console.log(`Checking contextual message in insurance context: ${message}`);
+    
+    // Check if recent messages (last 3) contain insurance topics
+    const recentMessages = context.messages.slice(-3);
     const hasRecentInsuranceContext = recentMessages.some(msg => 
-      INSURANCE_KEYWORDS.some(keyword => 
-        msg.content.toLowerCase().includes(keyword)
-      )
+      containsInsuranceKeywords(msg.content)
     );
     
-    // Only allow contextual messages if there's recent insurance context
-    // AND the message seems like a continuation (short questions, follow-ups)
+    console.log(`Recent insurance context: ${hasRecentInsuranceContext}`);
+    
+    // Allow contextual messages only if:
+    // 1. There's recent insurance context AND
+    // 2. The message is clearly a follow-up AND
+    // 3. The message contains contextual keywords
     if (hasRecentInsuranceContext && isContextualMessage(message)) {
-      // Additional check: message should be insurance-context related
-      const contextualInsuranceWords = [
-        'where', 'how much', 'which', 'what about', 'price', 'cost',
-        'company', 'best', 'cheap', 'expensive', 'recommend',
-        'أين', 'كم', 'أي', 'ماذا عن', 'سعر', 'كلفة', 'شركة', 'أفضل', 'رخيص'
-      ];
-      
-      if (contextualInsuranceWords.some(word => message.includes(word))) {
-        return true;
-      }
+      console.log(`Allowing contextual message: ${message}`);
+      return true;
     }
   }
 
+  console.log(`Rejecting non-insurance message: ${message}`);
   return false;
 }
 
@@ -133,6 +163,7 @@ app.get('/webhook', (req, res) => {
     console.log('Webhook verified successfully!');
     res.status(200).send(challenge);
   } else {
+    console.log('Webhook verification failed');
     res.status(403).send('Verification failed');
   }
 });
@@ -141,9 +172,11 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', async (req, res) => {
   try {
     const body = req.body;
+    console.log('Received webhook:', JSON.stringify(body, null, 2));
 
     if (body.object === 'whatsapp_business_account') {
-      body.entry?.forEach(async (entry) => {
+      // Process each entry
+      for (const entry of body.entry || []) {
         const changes = entry.changes?.[0];
         
         if (changes?.field === 'messages') {
@@ -153,7 +186,7 @@ app.post('/webhook', async (req, res) => {
             await handleIncomingMessage(messages[0], changes.value);
           }
         }
-      });
+      }
     }
 
     res.status(200).send('OK');
@@ -170,7 +203,7 @@ async function handleIncomingMessage(message, messageData) {
   const messageBodyLower = messageBody.toLowerCase();
   const messageType = message.type;
 
-  console.log(`Received message from ${from}: ${messageBody}`);
+  console.log(`📥 Received message from ${from}: ${messageBody}`);
 
   // Clean up old conversations periodically
   if (Math.random() < 0.1) { // 10% chance
@@ -180,47 +213,56 @@ async function handleIncomingMessage(message, messageData) {
   // Get conversation context
   const context = getConversationContext(from);
   
-  // Add user message to history
+  // Add user message to history FIRST
   addToConversationHistory(from, messageBody, true);
 
-  // Only respond to text messages
-  if (messageType !== 'text') {
-    const response = "مرحباً! أنا CorporateAI، مساعد أمّن للتأمين. أرسل لي رسالة نصية وسأساعدك! 🤖\n\nHello! I'm CorporateAI, Ammin's insurance assistant. Send me a text message and I'll help you! 🤖";
-    await sendWhatsAppMessage(from, response);
-    addToConversationHistory(from, response, false);
-    return;
-  }
+  try {
+    // Only respond to text messages
+    if (messageType !== 'text') {
+      const response = "مرحباً! أنا CorporateAI، مساعد أمّن للتأمين. أرسل لي رسالة نصية وسأساعدك! 🤖\n\nHello! I'm CorporateAI, Ammin's insurance assistant. Send me a text message and I'll help you! 🤖";
+      await sendWhatsAppMessage(from, response);
+      addToConversationHistory(from, response, false);
+      return;
+    }
 
-  // Check if message is insurance-related (with context)
-  if (!isInsuranceRelated(messageBodyLower, context)) {
-    const response = "أنا متخصص في مواضيع التأمين في لبنان فقط، خاصة لشركة أمّن للتأمين. هل يمكنك سؤالي عن شيء متعلق بالتأمين؟ 🏥🚗\n\nI'm specialized in Lebanese insurance topics only, particularly for Ammin insurance company. Could you please ask me something related to insurance? 🏥🚗";
+    // Check if message is insurance-related (with context)
+    if (!isInsuranceRelated(messageBodyLower, context)) {
+      const response = "أنا متخصص في مواضيع التأمين في لبنان فقط، خاصة لشركة أمّن للتأمين. هل يمكنك سؤالي عن شيء متعلق بالتأمين؟ 🏥🚗\n\nI'm specialized in Lebanese insurance topics only, particularly for Ammin insurance company. Could you please ask me something related to insurance? 🏥🚗";
+      
+      await sendWhatsAppMessage(from, response);
+      addToConversationHistory(from, response, false);
+      
+      // Reset insurance context if not insurance related
+      context.isInsuranceContext = false;
+      console.log(`Reset insurance context for ${from}`);
+      return;
+    }
+
+    // Mark as insurance context
+    context.isInsuranceContext = true;
+    console.log(`Set insurance context for ${from}`);
+
+    // Handle special queries
+    if (await handleSpecialQueries(from, messageBodyLower, context)) {
+      return;
+    }
+
+    // Get AI response with context
+    const aiResponse = await getOpenAIResponse(messageBody, context);
     
-    await sendWhatsAppMessage(from, response);
-    addToConversationHistory(from, response, false);
-    
-    // Reset insurance context if not insurance related
-    context.isInsuranceContext = false;
-    return;
-  }
+    if (aiResponse) {
+      await sendWhatsAppMessage(from, aiResponse);
+      addToConversationHistory(from, aiResponse, false);
+    } else {
+      const errorResponse = "عذراً، حدث خطأ. يرجى المحاولة مرة أخرى.\nSorry, there was an error. Please try again.";
+      await sendWhatsAppMessage(from, errorResponse);
+      addToConversationHistory(from, errorResponse, false);
+    }
 
-  // Mark as insurance context
-  context.isInsuranceContext = true;
-
-  // Handle special queries
-  if (await handleSpecialQueries(from, messageBodyLower, context)) {
-    return;
-  }
-
-  // Get AI response with context
-  const aiResponse = await getOpenAIResponse(messageBody, context);
-  
-  if (aiResponse) {
-    await sendWhatsAppMessage(from, aiResponse);
-    addToConversationHistory(from, aiResponse, false);
-  } else {
-    const errorResponse = "عذراً، حدث خطأ. يرجى المحاولة مرة أخرى.\nSorry, there was an error. Please try again.";
+  } catch (error) {
+    console.error(`Error handling message from ${from}:`, error);
+    const errorResponse = "عذراً، حدث خطأ تقني. يرجى المحاولة مرة أخرى.\nSorry, there was a technical error. Please try again.";
     await sendWhatsAppMessage(from, errorResponse);
-    addToConversationHistory(from, errorResponse, false);
   }
 }
 
@@ -246,6 +288,7 @@ async function handleSpecialQueries(from, message, context) {
   }
 
   if (response) {
+    console.log(`Sending special query response to ${from}`);
     await sendWhatsAppMessage(from, response);
     addToConversationHistory(from, response, false);
     return true;
@@ -257,7 +300,8 @@ async function handleSpecialQueries(from, message, context) {
 // Get response from OpenAI with conversation context
 async function getOpenAIResponse(message, context) {
   if (!OPENAI_API_KEY) {
-    // Fallback responses when no OpenAI key
+    console.log('No OpenAI key, using fallback responses');
+    // Enhanced fallback responses when no OpenAI key
     const responses = [
       "مرحباً! أنا CorporateAI مساعد أمّن للتأمين. يمكنني مساعدتك في:\n🚗 تأمين السيارات\n🏥 التأمين الصحي\n💰 أسعار السوق\n\nHello! I'm CorporateAI, Ammin's insurance assistant. I can help you with car insurance, health insurance, and market prices in Lebanon! 😊",
       "أهلاً بك! لدي معلومات شاملة عن التأمين في لبنان وأسعار السيارات. ما الذي تريد معرفته؟\n\nWelcome! I have comprehensive information about insurance in Lebanon and car prices. What would you like to know? 🚗",
@@ -267,16 +311,13 @@ async function getOpenAIResponse(message, context) {
   }
 
   try {
-    // Prepare conversation history for OpenAI
+    console.log(`Getting OpenAI response for: ${message}`);
+    
+    // Prepare conversation history for OpenAI - include more context
     const conversationHistory = context.messages.map(msg => ({
       role: msg.role,
       content: msg.content
     }));
-
-    // Add current message if not already in history
-    if (!conversationHistory.some(msg => msg.content === message)) {
-      conversationHistory.push({ role: "user", content: message });
-    }
 
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
@@ -287,31 +328,33 @@ async function getOpenAIResponse(message, context) {
             role: "system", 
             content: `You are CorporateAI, a friendly WhatsApp insurance assistant for Ammin, a Lebanese insurance company owned by Elias Chedid Hanna.
 
-            IMPORTANT CONTEXT BEHAVIOR:
-            - Remember the conversation history and context
-            - If user asks follow-up questions, refer to previous messages
-            - Maintain conversation flow naturally
-            - Don't require users to repeat context every message
-            - Be helpful with contextual follow-ups like "what about...", "where can I...", "which one..."
+            CRITICAL: You have access to the full conversation history. Use it to provide contextual, flowing responses.
+
+            CONTEXT BEHAVIOR:
+            - Remember what was discussed earlier in the conversation
+            - When users ask follow-up questions like "which one is better?", "where can I find it?", "how much does it cost?", refer to the previous context
+            - Continue conversations naturally without requiring users to repeat information
+            - Be helpful with contextual follow-ups and maintain conversation flow
 
             FORMATTING for WhatsApp:
-            - Use emojis to make messages friendly 😊🚗🏥💰
+            - Use emojis appropriately 😊🚗🏥💰
             - Keep paragraphs short (2-3 lines max)
-            - Use bullet points with • symbol
+            - Use bullet points with • symbol when listing
             - Add line breaks for readability
-            - Be conversational and friendly like chatting with a friend
+            - Be conversational and friendly
             
             TOPICS you help with:
-            1. Insurance in Lebanon (auto, health, property)
+            1. Insurance in Lebanon (auto, health, property, life)
             2. Car market prices in Lebanon
             3. Car comparisons and recommendations
-            4. Lebanese insurance laws
+            4. Lebanese insurance laws and regulations
             5. Ammin's services and benefits
-            6. Elias Chedid Hanna (founder)
-            7. Follow-up questions about any of the above topics
+            6. Elias Chedid Hanna (founder information)
+            7. Insurance quotes and coverage options
+            8. Follow-up questions about any insurance-related topics
             
-            Support both English and Arabic. Keep responses under 1000 characters when possible.
-            Always end with a helpful question or suggestion.`
+            Support both English and Arabic naturally. Keep responses under 1000 characters when possible.
+            Always end with a helpful question or suggestion to continue the conversation.`
           },
           ...conversationHistory.slice(-6) // Last 6 messages for context
         ],
@@ -326,16 +369,24 @@ async function getOpenAIResponse(message, context) {
       }
     );
     
+    console.log('OpenAI response received successfully');
     return response.data.choices[0].message.content;
   } catch (error) {
-    console.error('OpenAI API error:', error);
+    console.error('OpenAI API error:', error.response?.data || error.message);
     return "مرحباً! أنا مساعد أمّن للتأمين. كيف يمكنني مساعدتك اليوم؟\n\nHello! I'm Ammin's insurance assistant. How can I help you today? 😊";
   }
 }
 
 // Send WhatsApp message
 async function sendWhatsAppMessage(to, message) {
+  if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
+    console.error('Missing WHATSAPP_TOKEN or PHONE_NUMBER_ID');
+    throw new Error('WhatsApp configuration missing');
+  }
+
   try {
+    console.log(`📤 Sending message to ${to}: ${message.substring(0, 50)}...`);
+    
     const response = await axios.post(
       `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`,
       {
@@ -354,10 +405,10 @@ async function sendWhatsAppMessage(to, message) {
       }
     );
 
-    console.log('Message sent successfully:', response.data);
+    console.log('✅ Message sent successfully:', response.data);
     return response.data;
   } catch (error) {
-    console.error('Failed to send WhatsApp message:', error.response?.data || error.message);
+    console.error('❌ Failed to send WhatsApp message:', error.response?.data || error.message);
     throw error;
   }
 }
@@ -368,7 +419,13 @@ app.get('/health', (req, res) => {
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     service: 'CorporateAI WhatsApp Bot',
-    activeConversations: conversationMemory.size
+    activeConversations: conversationMemory.size,
+    environment: {
+      hasWhatsAppToken: !!WHATSAPP_TOKEN,
+      hasPhoneNumberId: !!PHONE_NUMBER_ID,
+      hasOpenAIKey: !!OPENAI_API_KEY,
+      hasVerifyToken: !!VERIFY_TOKEN
+    }
   });
 });
 
@@ -381,18 +438,32 @@ app.get('/debug/conversations', (req, res) => {
       messageCount: data.messages.length,
       lastActivity: new Date(data.lastActivity).toISOString(),
       isInsuranceContext: data.isInsuranceContext,
-      topic: data.topic
+      lastInsuranceMessage: data.lastInsuranceMessage,
+      recentMessages: data.messages.slice(-3).map(msg => ({
+        role: msg.role,
+        content: msg.content.substring(0, 100) + '...',
+        timestamp: new Date(msg.timestamp).toISOString()
+      }))
     });
   }
-  res.json(conversations);
+  res.json({
+    totalConversations: conversations.length,
+    conversations: conversations
+  });
 });
 
 // Start server
 app.listen(port, () => {
   console.log(`🤖 CorporateAI WhatsApp Bot server running on port ${port}`);
-  console.log(`📱 Webhook URL will be available soon`);
+  console.log(`📱 Webhook URL: /webhook`);
   console.log(`✅ Health check: /health`);
   console.log(`🧠 Conversation memory enabled`);
+  console.log(`🔧 Debug endpoint: /debug/conversations`);
+  console.log(`🔑 Environment check:`);
+  console.log(`   - WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? '✅ Set' : '❌ Missing'}`);
+  console.log(`   - PHONE_NUMBER_ID: ${PHONE_NUMBER_ID ? '✅ Set' : '❌ Missing'}`);
+  console.log(`   - OPENAI_API_KEY: ${OPENAI_API_KEY ? '✅ Set' : '❌ Missing'}`);
+  console.log(`   - VERIFY_TOKEN: ${VERIFY_TOKEN ? '✅ Set' : '❌ Missing'}`);
 });
 
 module.exports = app;
