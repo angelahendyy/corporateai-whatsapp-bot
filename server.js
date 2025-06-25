@@ -16,61 +16,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 // Conversation memory storage (in production, use Redis or database)
 const conversationMemory = new Map();
 
-// User analytics storage - NEW CODE
-const userAnalytics = new Map();
-
-// Track user activity - NEW FUNCTION
-function trackUserActivity(userId, message, messageType = 'text') {
-  const userKey = userId;
-  
-  if (!userAnalytics.has(userKey)) {
-    userAnalytics.set(userKey, {
-      phoneNumber: userId,
-      firstContact: new Date().toISOString(),
-      totalMessages: 0,
-      lastSeen: new Date().toISOString(),
-      topics: [],
-      recentMessages: []
-    });
-  }
-  
-  const userData = userAnalytics.get(userKey);
-  userData.totalMessages++;
-  userData.lastSeen = new Date().toISOString();
-  
-  // Track what they're asking about
-  if (containsInsuranceKeywords(message)) {
-    const topic = extractMainTopic(message);
-    if (!userData.topics.includes(topic)) {
-      userData.topics.push(topic);
-    }
-  }
-  
-  // Store recent messages (keep last 5)
-  userData.recentMessages.push({
-    time: new Date().toISOString(),
-    message: message.substring(0, 50) + '...',
-    isInsuranceRelated: containsInsuranceKeywords(message)
-  });
-  
-  if (userData.recentMessages.length > 5) {
-    userData.recentMessages = userData.recentMessages.slice(-5);
-  }
-}
-
-// Extract what topic they're asking about - NEW FUNCTION
-function extractMainTopic(message) {
-  const lowerMessage = message.toLowerCase();
-  
-  if (lowerMessage.includes('car') || lowerMessage.includes('سيارة')) return 'Car Insurance';
-  if (lowerMessage.includes('health') || lowerMessage.includes('صحي')) return 'Health Insurance';
-  if (lowerMessage.includes('price') || lowerMessage.includes('سعر')) return 'Pricing';
-  if (lowerMessage.includes('claim') || lowerMessage.includes('مطالبة')) return 'Claims';
-  if (lowerMessage.includes('elias') || lowerMessage.includes('الياس')) return 'Company Info';
-  
-  return 'General Insurance';
-}
-
 // Insurance keywords for filtering
 const INSURANCE_KEYWORDS = [
   'insurance', 'policy', 'premium', 'deductible', 'claim', 'coverage',
@@ -270,9 +215,6 @@ async function handleIncomingMessage(message, messageData) {
   
   // Add user message to history FIRST
   addToConversationHistory(from, messageBody, true);
-  
-  // Track user activity - NEW LINE ADDED
-  trackUserActivity(from, messageBody);
 
   try {
     // Only respond to text messages
@@ -479,79 +421,6 @@ async function sendWhatsAppMessage(to, message) {
   }
 }
 
-// ADMIN DASHBOARD - Simple page for your company to see users
-app.get('/admin', (req, res) => {
-  const users = [];
-  
-  for (const [userId, data] of userAnalytics.entries()) {
-    users.push({
-      phoneNumber: userId,
-      firstContact: data.firstContact,
-      lastSeen: data.lastSeen,
-      totalMessages: data.totalMessages,
-      topics: data.topics.join(', ') || 'No topics yet',
-      lastMessage: data.recentMessages[data.recentMessages.length - 1]?.message || 'No messages'
-    });
-  }
-  
-  // Sort by most recent
-  users.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
-  
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>WhatsApp Bot Users - Ammin Insurance</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-            h1 { color: #1877f2; text-align: center; }
-            .stats { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
-            .user-card { background: white; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #1877f2; }
-            .phone { font-weight: bold; color: #1877f2; }
-            .time { color: #666; font-size: 0.9em; }
-            .topics { background: #e3f2fd; padding: 5px 10px; border-radius: 15px; display: inline-block; margin: 5px 0; }
-            .refresh { background: #1877f2; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-        </style>
-        <script>
-            function refreshPage() { location.reload(); }
-            setInterval(refreshPage, 30000); // Auto refresh every 30 seconds
-        </script>
-    </head>
-    <body>
-        <h1>📱 WhatsApp Bot Users - Ammin Insurance</h1>
-        
-        <div class="stats">
-            <h3>📊 Summary</h3>
-            <p><strong>Total Users:</strong> ${users.length}</p>
-            <p><strong>Active Today:</strong> ${users.filter(u => 
-              new Date(u.lastSeen) > new Date(Date.now() - 24*60*60*1000)
-            ).length}</p>
-            <button class="refresh" onclick="refreshPage()">🔄 Refresh Now</button>
-        </div>
-        
-        <h3>👥 Users Who Texted the Bot</h3>
-        ${users.map(user => `
-          <div class="user-card">
-            <div class="phone">📞 ${user.phoneNumber}</div>
-            <div class="time">⏰ Last seen: ${new Date(user.lastSeen).toLocaleString()}</div>
-            <div class="time">📅 First contact: ${new Date(user.firstContact).toLocaleString()}</div>
-            <div>💬 Total messages: ${user.totalMessages}</div>
-            <div>💭 Last message: ${user.lastMessage}</div>
-            <div class="topics">🏷️ Topics: ${user.topics}</div>
-          </div>
-        `).join('')}
-        
-        <div style="text-align: center; margin-top: 30px; color: #666;">
-            <p>🤖 This page auto-refreshes every 30 seconds</p>
-            <p>📊 Real-time data from your WhatsApp chatbot</p>
-        </div>
-    </body>
-    </html>
-  `;
-  
-  res.send(html);
-});
-
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ 
@@ -559,7 +428,6 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     service: 'CorporateAI WhatsApp Bot',
     activeConversations: conversationMemory.size,
-    totalUsers: userAnalytics.size,
     environment: {
       hasWhatsAppToken: !!WHATSAPP_TOKEN,
       hasPhoneNumberId: !!PHONE_NUMBER_ID,
@@ -597,7 +465,6 @@ app.listen(port, () => {
   console.log(`🤖 CorporateAI WhatsApp Bot server running on port ${port}`);
   console.log(`📱 Webhook URL: /webhook`);
   console.log(`✅ Health check: /health`);
-  console.log(`👥 Admin dashboard: /admin`);
   console.log(`🧠 Conversation memory enabled`);
   console.log(`🔧 Debug endpoint: /debug/conversations`);
   console.log(`🔑 Environment check:`);
